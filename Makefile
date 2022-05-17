@@ -12,7 +12,7 @@ build:
 	mkdir -p $(BUILD_DIR)
 
 $(TARGET) : $(OBJ)
-	gcc $(OBJ) -o $(TARGET)
+	gcc $(OBJ) -o $(TARGET) -lrt
 
 $(OBJ) : $(BUILD_SRC)
 	gcc -c $(BUILD_SRC) -o $(OBJ) $(CFLAGS)

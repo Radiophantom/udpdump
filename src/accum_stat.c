@@ -5,8 +5,45 @@
 #include <unistd.h>
 #include <errno.h>
 #include <arpa/inet.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <mqueue.h>
+#include <pthread.h>
+#include <signal.h>
 
 #include <accum_stat.h>
+
+//#define DEBUG
+/*
+static void collect_stat ( union sigval sv ) {
+  
+  void *buf;
+
+
+}
+*/
+
+int raw_socket;
+mqd_t mq_fd;
+
+void clean_all ( void ) {
+  close( raw_socket );
+  mq_close( mq_fd );
+  mq_unlink( "/test-msg-q" );
+}
+
+void sig_handler( int signum ) {
+  printf("\n"); 
+  switch( signum ) {
+    case SIGINT:
+      printf("SIGINT captured\n"); 
+      clean_all();
+      abort();
+    default:
+      printf("Unknown SIGNAL is captured\n"); 
+      abort();
+  }
+}
 
 int parse_ip ( char *str_ip ) {
   int ip = 0;
@@ -23,6 +60,8 @@ int parse_ip ( char *str_ip ) {
 }
 
 int main ( int argc, char *argv[] ) {
+
+  signal(SIGINT, sig_handler);
 
   //******************************************************************************
   // Parsing passed arguments and fill filter settings
@@ -85,10 +124,10 @@ int main ( int argc, char *argv[] ) {
   // Open RAW socket processing
   //******************************************************************************
 
-  int raw_socket = socket( AF_INET, SOCK_RAW, 17 );
+  raw_socket = socket( AF_INET, SOCK_RAW, 17 );
 
   if( raw_socket == -1 ) {
-    perror("raw socket");
+    perror("socket()");
     exit(EXIT_SUCCESS);
   }
 
@@ -99,7 +138,8 @@ int main ( int argc, char *argv[] ) {
   ret = setsockopt( raw_socket, SOL_SOCKET, SO_BINDTODEVICE, settings_struct.dev_name, strlen(settings_struct.dev_name) );
 
   if( ret == -1 ) {
-    perror("Set raw socket options");
+    perror("setsockopt");
+    clean_all();
     exit(EXIT_SUCCESS);
   }
 
@@ -114,11 +154,27 @@ int main ( int argc, char *argv[] ) {
   }
   */
 
+  struct mq_attr ma;
+
+  ma.mq_flags = 0;
+  ma.mq_maxmsg = 10;
+  ma.mq_msgsize = 4;
+  ma.mq_curmsgs = 0;
+
+  mq_fd = mq_open( "/test-msg-q", O_RDWR | O_CREAT, 0770, &ma );
+
+  if( mq_fd == (mqd_t)-1 ) {
+    perror("mq_open");
+    clean_all();
+    exit(EXIT_SUCCESS);
+  }
+
   //******************************************************************************
   // Read RAW socket
   //******************************************************************************
 
-  int bytes_amount;
+  u_int32_t   bytes_amount;
+  u_int32_t*  bytes_amount_ptr  = &bytes_amount;
 
   char eth_buf [1000];
 
@@ -126,11 +182,10 @@ int main ( int argc, char *argv[] ) {
     bytes_amount = recv( raw_socket, eth_buf, 1000, MSG_WAITALL );//PEEK );
 
     if( bytes_amount == -1 ) {
-      perror("Raw socket peek data");
+      perror("socket recv()");
+      clean_all();
       exit(EXIT_SUCCESS);
     }
-
-    printf("Bytes captured: %0d\n", bytes_amount);
 
     u_int32_t *ip;
     u_int16_t *port;
@@ -158,30 +213,50 @@ int main ( int argc, char *argv[] ) {
     if( settings_struct.dst_port != ntohs(*port) )
       continue;
 
-    printf("UDP bytes has been captured: %d\n", bytes_amount-20-8);
+    #ifdef DEBUG
 
-    char* udp_data;
+      printf("Bytes captured: %0d\n", bytes_amount);
 
-    port = port + 3;
+      printf("UDP bytes has been captured: %d\n", bytes_amount-20-8);
 
-    udp_data = (char*)port;
+      char* udp_data;
 
-    printf("UDP data:\n");
-   
-    for( int i = 0; i < bytes_amount-20-8; i++ ) {
-      printf("%c", *udp_data++);
+      port = port + 3;
+
+      udp_data = (char*)port;
+
+      printf("UDP data:\n");
+     
+      for( int i = 0; i < bytes_amount-20-8; i++ ) {
+        printf("%c", *udp_data++);
+      }
+      printf("\n");
+    #endif
+
+    ret = mq_send( mq_fd, (char*)bytes_amount_ptr, 4, 0 );
+
+    if( ret == -1 ) {
+      perror("mq_send");
+      clean_all();
+      exit(EXIT_SUCCESS);
     }
-    printf("\n");
+
+    printf("Success msg send\n");
+
+    char buf [10] = "nonenone\0";
+
+    ret = mq_receive( mq_fd, buf, 4, NULL );
+    if( ret == -1 ) {
+      perror("mq_receive");
+      clean_all();
+      exit(EXIT_SUCCESS);
+    }
+
+    printf("Bytes received from queue: %d\n", *bytes_amount_ptr );
+
+    printf("Success msg get\n");
 
   }
-
-  /*
-  printf("Raw data:\n");
-
-  for( int i = 0; i < bytes_amount; i++ )
-    printf("%X", eth_buf[i]);
-  printf("\n");
-  */
 
   //******************************************************************************
   // Close RAW socket

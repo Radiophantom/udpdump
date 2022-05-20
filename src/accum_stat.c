@@ -12,13 +12,8 @@
 #include <signal.h>
 
 #include <accum_stat.h>
+#include <parse.h>
 
-#define DST_PORT_FILTER_EN ( 1 << 0 )
-#define SRC_PORT_FILTER_EN ( 1 << 1 )
-#define DST_IP_FILTER_EN   ( 1 << 2 )
-#define SRC_IP_FILTER_EN   ( 1 << 3 )
-
-/*
 int raw_socket;
 mqd_t mq_fd;
 
@@ -41,40 +36,8 @@ void sig_handler( int signum ) {
   }
 }
 
-int parse_and_check_pkt_fields( char *eth_buf ) {
 
-  u_int32_t *ip;
-  u_int16_t *port;
-
-  // Skip some header fields till IP-fields
-  eth_buf = eth_buf + 12;
-
-  // Cast to IP 32-bit fields
-  ip = (u_int32_t*)eth_buf;
-
-  if( settings_struct.src_ip_filter_en )
-    if( settings_struct.src_ip != ntohl(*ip++) )
-      return 1;
-
-  if( settings_struct.dst_ip_filter_en )
-    if( settings_struct.dst_ip != ntohl(*ip++) )
-      return 1;
-
-  // Cast to UDP 16-bit fields
-  port = (u_int16_t*)ip;
-
-  if( settings_struct.src_port_filter_en )
-    if( settings_struct.src_port != ntohs(*port++) )
-      return 1;
-
-  if( settings_struct.dst_port_filter_en )
-    if( settings_struct.dst_port != ntohs(*port++) )
-      return 1;
-
-  return 0;
-}
-
-
+/*
 struct {
   mqd_t mq_fd;
 } collect_stat_struct_t;
@@ -112,63 +75,9 @@ void collect_stat( void *arg ) {
 }
 */
 
-int parse_port ( char *str_ip, u_int16_t *port ) {
-  int port_int;
-  if( strlen( str_ip ) > 5 )
-    return -1;
-  port_int = atoi( str_ip );
-  if( port_int > 65535 )
-    return -1;
-  *port = (u_int16_t)port_int;
-  return 0;
-}
-
-int parse_ip ( char *str_ip, u_int32_t *ip ) {
-
-  char *next_str_ip = str_ip;
-  u_int32_t ip_byte;
-
-  // Parse first 3 IP fields
-  for( int i = 0; i < 3; i++ ) {
-    // Find next '.' divider
-    for( int j = 0; j < 4; j++ ) {
-      if( *next_str_ip++ == '.' ) {
-        if( j == 0 )
-          return -1;
-        break;
-      }
-      if( j == 3 )
-        return -1;
-    }
-    if( ( ip_byte = atoi( str_ip) ) > 255 )
-      return -1;
-    *ip = ( *ip << 8 ) | ip_byte;
-    str_ip = next_str_ip;
-  }
-
-  // Parse last 4th IP field
-  for( int j = 0; j < 4; j++ ) {
-    if ( *next_str_ip == '.' ) {
-      return -1;
-    }
-    if ( *next_str_ip++ == '\0' ) {
-      if( j == 0 )
-        return -1;
-      break;
-    }
-    if( j == 3 )
-      return -1;
-  }
-
-  if( ( ip_byte = atoi( str_ip) ) > 255 )
-    return -1;
-  *ip = ( *ip << 8 ) | ip_byte;
-  return 0;
-}
-
 int main ( int argc, char *argv[] ) {
 
-//  signal(SIGINT, sig_handler);
+  signal(SIGINT, sig_handler);
 
   //******************************************************************************
   // Parsing passed arguments and fill filter settings
@@ -183,91 +92,14 @@ int main ( int argc, char *argv[] ) {
   "-if"
   };
 
-  int parse_args( char *argv ) {
-    for( int i = 0; i < 5; i++ )
-      if( strcmp( settings[i], argv ) == 0 )
-        return i;
-    return -1;
-  }
-
-  u_int32_t filter_mask = 0x00000000;
-
-  struct {
-    u_int32_t dst_ip;
-    u_int32_t src_ip;
-    u_int16_t dst_port;
-    u_int16_t src_port;
-    char      iface_name [100];
-  } settings_struct;
+  struct settings_struct filter_settings;
 
   // NULL-terminate 'interface name' to check later
-  *settings_struct.iface_name = 0x00;
+  *filter_settings.iface_name = 0x00;
+  filter_settings.filter_mask = 0x00000000;
 
-  int arg_ind;
+  parse_args( settings, filter_settings, argc, argv );
 
-  for( int i = 1; i < argc; i = i+2 ) {
-
-    if( ( arg_ind = parse_args( argv[i] ) ) == -1 ) {
-      printf("Unknown option \"%s\"\n", argv[i]);
-      exit(EXIT_SUCCESS);
-    }
-
-    if( i > argc - 2 ) {
-      printf("\"%s\" option argument missed\n", argv[i]);
-      exit(EXIT_SUCCESS);
-    }
-
-    switch( arg_ind ) {
-      case( 0 ):
-        if( parse_ip( argv[i+1], &settings_struct.dst_ip ) == -1 ) {
-          printf("Invalid \"%s\" argument value: %s\n", argv[i], argv[i+1]);
-          exit(EXIT_SUCCESS);
-        }
-        filter_mask |= DST_IP_FILTER_EN;
-        break;
-      case( 1 ):
-        if( parse_ip( argv[i+1], &settings_struct.src_ip ) == -1 ) {
-          printf("Invalid \"%s\" argument value: %s\n", argv[i], argv[i+1]);
-          exit(EXIT_SUCCESS);
-        }
-        filter_mask |= SRC_IP_FILTER_EN;
-        break;
-      case( 2 ):
-        if( parse_port( argv[i+1], &settings_struct.dst_port ) == -1 ) {
-          printf("Invalid \"%s\" argument value: %s\n", argv[i], argv[i+1]);
-          exit(EXIT_SUCCESS);
-        }
-        filter_mask |= DST_PORT_FILTER_EN;
-        break;
-      case( 3 ):
-        if( parse_port( argv[i+1], &settings_struct.src_port ) == -1 ) {
-          printf("Invalid \"%s\" argument value: %s\n", argv[i], argv[i+1]);
-          exit(EXIT_SUCCESS);
-        }
-        filter_mask |= SRC_PORT_FILTER_EN;
-        break;
-      case( 4 ):
-        strcpy( settings_struct.iface_name, argv[i+1] );
-        break;
-    }
-  }
-
-  if( strlen(settings_struct.iface_name) == 0 ) {
-    printf("Interface name must be set\n");
-    exit(EXIT_SUCCESS);
-  }
-
-  if( filter_mask & DST_IP_FILTER_EN )
-    printf("Destination ip is %x\n",    settings_struct.dst_ip    );
-  if( filter_mask & SRC_IP_FILTER_EN )
-    printf("Source ip is %x\n",         settings_struct.src_ip    );
-  if( filter_mask & DST_PORT_FILTER_EN )
-    printf("Destination port is %0d\n", settings_struct.dst_port  );
-  if( filter_mask & SRC_PORT_FILTER_EN )
-    printf("Source port is %0d\n",      settings_struct.src_port  );
-  printf("Interface name is %s\n",    settings_struct.iface_name);
-
-  /*
   //******************************************************************************
   // Open RAW socket
   //******************************************************************************
@@ -283,7 +115,7 @@ int main ( int argc, char *argv[] ) {
 
   int ret;
 
-  ret = setsockopt( raw_socket, SOL_SOCKET, SO_BINDTODEVICE, settings_struct.dev_name, strlen(settings_struct.dev_name) );
+  ret = setsockopt( raw_socket, SOL_SOCKET, SO_BINDTODEVICE, filter_settings.iface_name, strlen(filter_settings.iface_name) );
 
   if( ret == -1 ) {
     perror("setsockopt");
@@ -295,6 +127,7 @@ int main ( int argc, char *argv[] ) {
   // Open thread message queue
   //******************************************************************************
 
+  /*
   const char mq_name [11] = "/test-msg-q";
 
   struct mq_attr ma;
@@ -312,6 +145,7 @@ int main ( int argc, char *argv[] ) {
     close( raw_socket );
     exit(EXIT_SUCCESS);
   }
+  */
 
   //******************************************************************************
   // Read RAW socket
@@ -328,23 +162,23 @@ int main ( int argc, char *argv[] ) {
     if( bytes_amount == -1 ) {
       perror("socket.recv");
       close( raw_socket );
-      mq_close( mq_fd );
-      mq_unlink( mq_name );
+      //mq_close( mq_fd );
+      //mq_unlink( mq_name );
       exit(EXIT_SUCCESS);
     }
 
     // Skip packet if out of filter
-    if( parse_and_check_pkt_fields( eth_buf ) )
+    if( parse_and_check_pkt_fields( filter_settings, eth_buf ) )
       continue;
 
     // Send captured bytes amount to 'statistic collecting' thread
-    ret = mq_send( mq_fd, (char*)bytes_amount_ptr, 4, 0 );
+    //ret = mq_send( mq_fd, (char*)bytes_amount_ptr, 4, 0 );
 
     if( ret == -1 ) {
       perror("mq_send");
       close( raw_socket );
-      mq_close( mq_fd );
-      mq_unlink( mq_name );
+      //mq_close( mq_fd );
+      //mq_unlink( mq_name );
       exit(EXIT_SUCCESS);
     }
 
@@ -358,7 +192,6 @@ int main ( int argc, char *argv[] ) {
   //******************************************************************************
 
   close( raw_socket );
-  */
 
   exit(EXIT_SUCCESS);
 }

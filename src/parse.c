@@ -67,47 +67,47 @@ int find_args( const char *settings [], char *argv ) {
   return -1;
 }
 
-int parse_args( const char *settings [], struct settings_struct *filter_settings, int argc, char *argv[] ) {
+int parse_args( const char *settings [], (struct settings_struct *)filter_settings, int argc, char *argv[] ) {
   int arg_ind;
 
   for( int i = 1; i < argc; i = i+2 ) {
 
     if( ( arg_ind = find_args( settings, argv[i] ) ) == -1 ) {
       printf("Unknown option \"%s\"\n", argv[i]);
-      exit(EXIT_SUCCESS);
+      return 1;
     }
 
     if( i > argc - 2 ) {
       printf("\"%s\" option argument missed\n", argv[i]);
-      exit(EXIT_SUCCESS);
+      return 1;
     }
 
     switch( arg_ind ) {
       case( 0 ):
         if( parse_ip( argv[i+1], filter_settings -> dst_ip ) == -1 ) {
           printf("Invalid \"%s\" argument value: %s\n", argv[i], argv[i+1]);
-          exit(EXIT_SUCCESS);
+          exit(EXIT_FAILURE);
         }
         filter_settings -> filter_mask |= DST_IP_FILTER_EN;
         break;
       case( 1 ):
         if( parse_ip( argv[i+1], filter_settings -> src_ip ) == -1 ) {
           printf("Invalid \"%s\" argument value: %s\n", argv[i], argv[i+1]);
-          exit(EXIT_SUCCESS);
+          exit(EXIT_FAILURE);
         }
         filter_settings -> filter_mask |= SRC_IP_FILTER_EN;
         break;
       case( 2 ):
         if( parse_port( argv[i+1], filter_settings -> dst_port ) == -1 ) {
           printf("Invalid \"%s\" argument value: %s\n", argv[i], argv[i+1]);
-          exit(EXIT_SUCCESS);
+          exit(EXIT_FAILURE);
         }
         filter_settings -> filter_mask |= DST_PORT_FILTER_EN;
         break;
       case( 3 ):
         if( parse_port( argv[i+1], filter_settings -> src_port ) == -1 ) {
           printf("Invalid \"%s\" argument value: %s\n", argv[i], argv[i+1]);
-          exit(EXIT_SUCCESS);
+          exit(EXIT_FAILURE);
         }
         filter_settings -> filter_mask |= SRC_PORT_FILTER_EN;
         break;
@@ -119,9 +119,10 @@ int parse_args( const char *settings [], struct settings_struct *filter_settings
 
   if( strlen(filter_settings -> iface_name) == 0 ) {
     printf("Interface name must be set\n");
-    exit(EXIT_SUCCESS);
+    return 1;
   }
 
+#ifdef DEBUG
   if( filter_settings -> filter_mask & DST_IP_FILTER_EN )
     printf("Destination ip is %x\n",    filter_settings -> dst_ip    );
   if( filter_settings -> filter_mask & SRC_IP_FILTER_EN )
@@ -131,17 +132,19 @@ int parse_args( const char *settings [], struct settings_struct *filter_settings
   if( filter_settings -> filter_mask & SRC_PORT_FILTER_EN )
     printf("Source port is %0d\n",      filter_settings -> src_port  );
   printf("Interface name is %s\n",    filter_settings -> iface_name);
+#endif
 
   return 0;
 }
 
+/*
 int parse_and_check_pkt_fields( struct settings_struct *filter_settings, char *eth_buf ) {
 
   u_int32_t *ip;
   u_int16_t *port;
 
   // Skip some header fields till IP-fields
-  eth_buf = eth_buf + 12;
+  eth_buf = eth_buf + 12 + 2;
 
   // Cast to IP 32-bit fields
   ip = (u_int32_t*)eth_buf;
@@ -167,3 +170,4 @@ int parse_and_check_pkt_fields( struct settings_struct *filter_settings, char *e
 
   return 0;
 }
+*/

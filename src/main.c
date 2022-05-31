@@ -8,17 +8,28 @@
 #include <fcntl.h>
 #include <time.h>
 #include <sys/socket.h>
+#include <linux/if_packet.h>
+#include <linux/if_ether.h>
+#include <net/ethernet.h>
+#include <arpa/inet.h>
+#include <sys/ioctl.h>
+#include <net/if.h>
+#include <string.h>
+#include <accum_stat.h>
 
+// Global variable to stop threads after Ctrl+C
 int stop = 0;
 
+// SIGINT handler action function
 void sig_handler( int signo, siginfo_t *info, void *ptr ) {
   stop = 1;
 }
 
+// SIGINT handler set function
 void set_sig_handler( void ) {
   struct sigaction action;
 
-  action.sa_flags = SA_SIGINFO;
+  action.sa_flags     = SA_SIGINFO;
   action.sa_sigaction = sig_handler;
 
   if( sigaction(SIGINT, &action, NULL) == -1 ){
@@ -27,48 +38,71 @@ void set_sig_handler( void ) {
   }
 }
 
-void *accum_stat( void *msg_queue_name ) {
-  sigset_t mask;
-  sigemptyset( &mask );
-  sigaddset( &mask, SIGINT );
-  pthread_sigmask(SIG_BLOCK, &mask, NULL);
-
-  mqd_t mq_fd;
-
-  mq_fd = mq_open( msg_queue_name, O_RDONLY | O_NONBLOCK );
-
-  if( mq_fd == (mqd_t)-1 ) {
-    perror("mq_open");
-    pthread_exit( NULL );
-  }
-
-  u_int32_t msg_value;
-  int       ret;
-
-  while( stop == 0 ) {
-    ret = mq_receive( mq_fd, (char*)&msg_value, 4, NULL );
-    if( ret != -1 ) {
-      printf("Message value: %0d\n", msg_value);
-    } else if( errno == EAGAIN ) {
-      sleep(1);
-    } else {
-      perror("mq_timedreceive");
-      if( mq_close( mq_fd ) )
-        perror("mq_close");
-      pthread_exit( NULL );
-    }
-  }
-  
-  if( mq_close( mq_fd ) )
-    perror("mq_close");
-  pthread_exit( NULL );
-}
-
+// Main function
 int main ( int argc, char *argv[] ) {
+
+  // Some functions temp result store variable
+  int ret;
+
+  //******************************************************************************
+  // Parse and check utility parameters
+  //******************************************************************************
+
+  struct settings_struct filter_settings;
+
+  if( parse_args( settings, &filter_settings, argc, arv ) )
+    exit(EXIT_FAILURE);
+
+  // Get required interface index for RAW socket purpose
+  struct ifreq if_dev_info;
+
+  strcpy( if_dev_info.ifr_name, dev_name );
+
+  ret = ioctl(raw_socket, SIOCGIFINDEX, &if_dev_info);
+
+  if( ret == -1 ) {
+    perror("ioctl");
+    exit(EXIT_FAILURE);
+  }
+
+  //******************************************************************************
+  // Define SIGINT signal behavior
+  //******************************************************************************
 
   set_sig_handler();
 
-  pthread_t accum_thread;
+  //******************************************************************************
+  // Open RAW socket and bind it to interface
+  //******************************************************************************
+
+  int raw_socket = socket( AF_PACKET, SOCK_RAW, htons(ETH_P_ALL) );
+
+  if( raw_socket == -1 ) {
+    perror("socket");
+    exit(EXIT_FAILURE);
+  }
+
+#ifdef DEBUG
+  printf("Success raw socket\n");
+#endif
+
+  struct sockaddr_ll sock_dev_info;
+
+  memset(&sock_dev_info, 0, sizeof( struct sockaddr_ll ));
+
+  sock_dev_info.sll_family   = AF_PACKET;
+  sock_dev_info.sll_ifindex  = if_dev_info.ifr_ifindex;
+
+  ret = bind( raw_socket, (struct sockaddr*) &sock_dev_info, sizeof( struct sockaddr_ll ) );
+
+  if( ret == -1 ) {
+    perror("bind");
+    goto OUT;
+  }
+
+  //******************************************************************************
+  // Open msg queue for inter-thread communication
+  //******************************************************************************
 
   mqd_t mq_fd;
   struct mq_attr attr;
@@ -80,42 +114,61 @@ int main ( int argc, char *argv[] ) {
 
   char msg_queue_name [12] = "/test-msg-q\0";
 
-  int raw_socket = socket(SOCK SOCK_DGRAM, htons(3));
-
   mq_fd = mq_open( msg_queue_name, O_WRONLY | O_CREAT, 0200, &attr );
 
   if( mq_fd == (mqd_t)-1 ) {
     perror("mq_open");
     exit(EXIT_FAILURE);
   }
-  else
-  {
-    printf("Main thread opened msg queue\n");
-  }
+
+#ifdef DEBUG
+  printf("Main thread opened msg queue\n");
+#endif
+
+  //******************************************************************************
+  // Create 'stat' accum thread
+  //******************************************************************************
+
+  pthread_t accum_thread;
 
   pthread_create( &accum_thread, NULL, accum_stat, msg_queue_name );
 
+  //******************************************************************************
+  // Read RAW socket
+  //******************************************************************************
+
   int msg_value = 0;
-  int ret;
 
   while( stop == 0 ) {
-    ret = mq_send( mq_fd, (char*)&msg_value, 4, 0 );
-    if( ret == -1 ) {
-      perror("mq_send");
-      if( mq_close( mq_fd ) )
-        perror("mq_close");
-    }
-    msg_value++;
-    sleep(2);
-  }
 
-  if( mq_close( mq_fd ) )
-    perror("mq_close");
+    int bytes_amount;
+
+    char eth_buf [1000];
+
+    bytes_amount = recv( raw_socket, eth_buf, 1000, MSG_TRUNC );
+
+    if( bytes_amount == -1 ) {
+      perror("recv");
+    } else {
+      if( parse_pkt() ) {
+        ret = mq_send( mq_fd, (char*)&bytes_amount, 4, 0 );
+        if( ret == -1 ) {
+          perror("mq_send");
+          goto OUT;
+        }
+      }
+    }
+  }
 
   pthread_join( accum_thread, NULL );
 
-  if( mq_unlink( msg_queue_name ) )
-    perror("mq_unlink");
+  OUT:
+    close( raw_socket );
+    exit(EXIT_FAILURE);
+    if( mq_close( mq_fd ) )
+      perror("mq_close");
+    if( mq_unlink( msg_queue_name ) )
+      perror("mq_unlink");
 
   exit(EXIT_SUCCESS);
 }

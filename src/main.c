@@ -15,7 +15,12 @@
 #include <sys/ioctl.h>
 #include <net/if.h>
 #include <string.h>
+
+#include <main.h>
 #include <accum_stat.h>
+#include <parse.h>
+
+#define DEBUG
 
 // Global variable to stop threads after Ctrl+C
 int stop = 0;
@@ -50,20 +55,8 @@ int main ( int argc, char *argv[] ) {
 
   struct settings_struct filter_settings;
 
-  if( parse_args( settings, &filter_settings, argc, arv ) )
+  if( parse_args( settings, &filter_settings, argc, argv ) )
     exit(EXIT_FAILURE);
-
-  // Get required interface index for RAW socket purpose
-  struct ifreq if_dev_info;
-
-  strcpy( if_dev_info.ifr_name, dev_name );
-
-  ret = ioctl(raw_socket, SIOCGIFINDEX, &if_dev_info);
-
-  if( ret == -1 ) {
-    perror("ioctl");
-    exit(EXIT_FAILURE);
-  }
 
   //******************************************************************************
   // Define SIGINT signal behavior
@@ -85,6 +78,18 @@ int main ( int argc, char *argv[] ) {
 #ifdef DEBUG
   printf("Success raw socket\n");
 #endif
+
+  // Get required interface index for RAW socket purpose
+  struct ifreq if_dev_info;
+
+  strcpy( if_dev_info.ifr_name, filter_settings.iface_name );
+
+  ret = ioctl(raw_socket, SIOCGIFINDEX, &if_dev_info);
+
+  if( ret == -1 ) {
+    perror("ioctl");
+    goto OUT;
+  }
 
   struct sockaddr_ll sock_dev_info;
 
@@ -118,7 +123,7 @@ int main ( int argc, char *argv[] ) {
 
   if( mq_fd == (mqd_t)-1 ) {
     perror("mq_open");
-    exit(EXIT_FAILURE);
+    goto OUT;
   }
 
 #ifdef DEBUG
@@ -137,25 +142,32 @@ int main ( int argc, char *argv[] ) {
   // Read RAW socket
   //******************************************************************************
 
-  int msg_value = 0;
-
   while( stop == 0 ) {
 
     int bytes_amount;
 
-    char eth_buf [1000];
+    u_int16_t *eth_buf_ptr;
 
-    bytes_amount = recv( raw_socket, eth_buf, 1000, MSG_TRUNC );
+    char *eth_buf = (char*) malloc( 65536 );
+
+    if( eth_buf == NULL )
+      goto OUT;
+
+    bytes_amount = recv( raw_socket, eth_buf, 65536, 0 );
 
     if( bytes_amount == -1 ) {
       perror("recv");
     } else {
-      if( parse_pkt() ) {
-        ret = mq_send( mq_fd, (char*)&bytes_amount, 4, 0 );
-        if( ret == -1 ) {
-          perror("mq_send");
-          goto OUT;
-        }
+      printf("Msg captured\n");
+      
+      eth_buf_ptr = (u_int16_t*)eth_buf;
+      for( int i = 0; i < bytes_amount/2; i++ )
+        printf("%X", ntohs( *eth_buf_ptr++ ) );
+      printf("\n");
+      ret = mq_send( mq_fd, (char*)&bytes_amount, 4, 0 );
+      if( ret == -1 ) {
+        perror("mq_send");
+        goto OUT;
       }
     }
   }
@@ -163,8 +175,9 @@ int main ( int argc, char *argv[] ) {
   pthread_join( accum_thread, NULL );
 
   OUT:
-    close( raw_socket );
-    exit(EXIT_FAILURE);
+    free(eth_buf);
+    if( close( raw_socket ) )
+      perror("close");
     if( mq_close( mq_fd ) )
       perror("mq_close");
     if( mq_unlink( msg_queue_name ) )

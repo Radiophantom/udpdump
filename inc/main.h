@@ -1,4 +1,7 @@
-const char settings[5] = {
+#ifndef _MAIN_H
+#define _MAIN_H 1
+
+const char *settings[5] = {
   "-dstip",
   "-srcip",
   "-dstport",
@@ -6,3 +9,4 @@ const char settings[5] = {
   "-if"
 };
 
+#endif /* <main.h> included. */

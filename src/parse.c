@@ -67,7 +67,7 @@ int find_args( const char *settings [], char *argv ) {
   return -1;
 }
 
-int parse_args( const char *settings [], (struct settings_struct *)filter_settings, int argc, char *argv[] ) {
+int parse_args( const char *settings [], struct settings_struct *filter_settings, int argc, char *argv[] ) {
   int arg_ind;
 
   for( int i = 1; i < argc; i = i+2 ) {
@@ -84,28 +84,28 @@ int parse_args( const char *settings [], (struct settings_struct *)filter_settin
 
     switch( arg_ind ) {
       case( 0 ):
-        if( parse_ip( argv[i+1], filter_settings -> dst_ip ) == -1 ) {
+        if( parse_ip( argv[i+1], &filter_settings -> dst_ip ) == -1 ) {
           printf("Invalid \"%s\" argument value: %s\n", argv[i], argv[i+1]);
           exit(EXIT_FAILURE);
         }
         filter_settings -> filter_mask |= DST_IP_FILTER_EN;
         break;
       case( 1 ):
-        if( parse_ip( argv[i+1], filter_settings -> src_ip ) == -1 ) {
+        if( parse_ip( argv[i+1], &filter_settings -> src_ip ) == -1 ) {
           printf("Invalid \"%s\" argument value: %s\n", argv[i], argv[i+1]);
           exit(EXIT_FAILURE);
         }
         filter_settings -> filter_mask |= SRC_IP_FILTER_EN;
         break;
       case( 2 ):
-        if( parse_port( argv[i+1], filter_settings -> dst_port ) == -1 ) {
+        if( parse_port( argv[i+1], &filter_settings -> dst_port ) == -1 ) {
           printf("Invalid \"%s\" argument value: %s\n", argv[i], argv[i+1]);
           exit(EXIT_FAILURE);
         }
         filter_settings -> filter_mask |= DST_PORT_FILTER_EN;
         break;
       case( 3 ):
-        if( parse_port( argv[i+1], filter_settings -> src_port ) == -1 ) {
+        if( parse_port( argv[i+1], &filter_settings -> src_port ) == -1 ) {
           printf("Invalid \"%s\" argument value: %s\n", argv[i], argv[i+1]);
           exit(EXIT_FAILURE);
         }

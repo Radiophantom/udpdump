@@ -10,4 +10,6 @@ struct settings_struct {
   char      iface_name [100];
 };
 
+void *accum_stat( void *msg_queue_name );
+
 #endif /* <accum_stat.h> included. */

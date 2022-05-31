@@ -6,7 +6,7 @@ INC_DIR=inc/
 TARGET=udpdump
 
 SRC=main.c parse.c accum_stat.c
-OBJ=$(SRC:.c=.o)
+OBJ=$(addprefix $(BUILD_DIR)/, $(SRC:.c=.o))
 
 all:
 	make -C . clean
@@ -16,7 +16,7 @@ all:
 build:
 	mkdir -p $(BUILD_DIR)
 
-$(TARGET): $(BUILD_DIR)/$(OBJ)
+$(TARGET): $(OBJ)
 	gcc $(OBJ) -o $(TARGET) -lrt -pthread
 
 $(BUILD_DIR)/%.o : $(SRC_DIR)/%.c

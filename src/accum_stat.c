@@ -8,6 +8,9 @@
 #include <mqueue.h>
 #include <pthread.h>
 #include <accum_stat.h>
+#include <signal.h>
+
+extern int stop;
 
 // Statistic accumulation thread
 void *accum_stat( void *msg_queue_name ) {

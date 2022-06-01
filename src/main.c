@@ -8,13 +8,17 @@
 #include <fcntl.h>
 #include <time.h>
 #include <sys/socket.h>
+#include <arpa/inet.h>
+#include <sys/ioctl.h>
+#include <string.h>
+
+#include <net/if.h>
+#include <netinet/ip.h>
+#include <netinet/udp.h>
+#include <netinet/ether.h>
 #include <linux/if_packet.h>
 #include <linux/if_ether.h>
 #include <net/ethernet.h>
-#include <arpa/inet.h>
-#include <sys/ioctl.h>
-#include <net/if.h>
-#include <string.h>
 
 #include <main.h>
 #include <accum_stat.h>
@@ -68,9 +72,9 @@ int main ( int argc, char *argv[] ) {
   // Open RAW socket and bind it to interface
   //******************************************************************************
 
-  int raw_socket = socket( AF_PACKET, SOCK_RAW, htons(ETH_P_ALL) );
+  int raw_socket;
 
-  if( raw_socket == -1 ) {
+  if((raw_socket = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL))) == -1 ) {
     perror("socket");
     exit(EXIT_FAILURE);
   }
@@ -82,13 +86,12 @@ int main ( int argc, char *argv[] ) {
   // Get required interface index for RAW socket purpose
   struct ifreq if_dev_info;
 
-  strcpy( if_dev_info.ifr_name, filter_settings.iface_name );
+  memset(&if_dev_info, 0, sizeof(struct ifreq));
+  strncpy( if_dev_info.ifr_name, filter_settings.iface_name, IFNAMSIZ-1 );
 
-  ret = ioctl(raw_socket, SIOCGIFINDEX, &if_dev_info);
-
-  if( ret == -1 ) {
+  if(ioctl(raw_socket, SIOCGIFINDEX, &if_dev_info) == -1) {
     perror("ioctl");
-    goto OUT;
+    goto exit_and_close_socket;
   }
 
   struct sockaddr_ll sock_dev_info;
@@ -96,13 +99,14 @@ int main ( int argc, char *argv[] ) {
   memset(&sock_dev_info, 0, sizeof( struct sockaddr_ll ));
 
   sock_dev_info.sll_family   = AF_PACKET;
+  //sock_dev_info.sll_pkttype  = PACKET_OTHERHOST;
   sock_dev_info.sll_ifindex  = if_dev_info.ifr_ifindex;
 
   ret = bind( raw_socket, (struct sockaddr*) &sock_dev_info, sizeof( struct sockaddr_ll ) );
 
   if( ret == -1 ) {
     perror("bind");
-    goto OUT;
+    goto exit_and_close_socket;
   }
 
   //******************************************************************************
@@ -123,7 +127,7 @@ int main ( int argc, char *argv[] ) {
 
   if( mq_fd == (mqd_t)-1 ) {
     perror("mq_open");
-    goto OUT;
+    goto exit_and_close_socket;
   }
 
 #ifdef DEBUG
@@ -146,42 +150,70 @@ int main ( int argc, char *argv[] ) {
 
     int bytes_amount;
 
-    u_int16_t *eth_buf_ptr;
-
     char *eth_buf = (char*) malloc( 65536 );
+    char *eth_buf_ptr;
 
     if( eth_buf == NULL )
-      goto OUT;
+      goto exit_and_close_mqueue;
 
     bytes_amount = recv( raw_socket, eth_buf, 65536, 0 );
+
+    struct ethhdr *eth_hdr;
+    struct iphdr  *ip_hdr;
+    struct udphdr *udp_hdr;
 
     if( bytes_amount == -1 ) {
       perror("recv");
     } else {
       printf("Msg captured\n");
-      
-      eth_buf_ptr = (u_int16_t*)eth_buf;
-      for( int i = 0; i < bytes_amount/2; i++ )
-        printf("%X", ntohs( *eth_buf_ptr++ ) );
+      eth_buf_ptr = eth_buf;
+      for( int i = 0; i < bytes_amount; i++ )
+        printf("%X", eth_buf[i]);
       printf("\n");
+      eth_hdr = (struct ethhdr*)eth_buf_ptr;
+      eth_buf_ptr += sizeof(struct ethhdr);
+      ip_hdr  = (struct iphdr*)eth_buf_ptr;
+      eth_buf_ptr += sizeof(struct iphdr);
+      udp_hdr  = (struct udphdr*)eth_buf_ptr;
+      //parse_and_check_pkt_fields( &filter_settings, eth_buf, bytes_amount );
+#ifdef DEBUG
+      printf("DST Mac:%X%X%X%X%X%X\n", eth_hdr -> h_dest[0],
+                                       eth_hdr -> h_dest[1],
+                                       eth_hdr -> h_dest[2],
+                                       eth_hdr -> h_dest[3],
+                                       eth_hdr -> h_dest[4],
+                                       eth_hdr -> h_dest[5] );
+      printf("SRC Mac:%X%X%X%X%X%X\n", eth_hdr -> h_source[0],
+                                       eth_hdr -> h_source[1],
+                                       eth_hdr -> h_source[2],
+                                       eth_hdr -> h_source[3],
+                                       eth_hdr -> h_source[4],
+                                       eth_hdr -> h_source[5] );
+      printf("IP Proto:%X\n",  ntohs(eth_hdr -> h_proto));
+      printf("IP Protocol:%d\n", ip_hdr -> protocol);
+      printf("IP SRC:%X\n", ntohl(ip_hdr -> saddr));
+      printf("IP DST:%X\n", ntohl(ip_hdr -> daddr));
+      printf("\n");
+#endif
       ret = mq_send( mq_fd, (char*)&bytes_amount, 4, 0 );
       if( ret == -1 ) {
         perror("mq_send");
-        goto OUT;
+        free(eth_buf);
+        goto exit_and_close_mqueue;
       }
     }
   }
 
   pthread_join( accum_thread, NULL );
 
-  OUT:
-    free(eth_buf);
-    if( close( raw_socket ) )
-      perror("close");
+  exit_and_close_mqueue:
     if( mq_close( mq_fd ) )
       perror("mq_close");
     if( mq_unlink( msg_queue_name ) )
       perror("mq_unlink");
+  exit_and_close_socket:
+    if( close( raw_socket ) )
+      perror("close");
 
   exit(EXIT_SUCCESS);
 }

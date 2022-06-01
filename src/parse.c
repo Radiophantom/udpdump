@@ -6,6 +6,7 @@
 #include <sys/stat.h>
 #include <parse.h>
 
+#define DEBUG
 int parse_port ( char *str_ip, u_int16_t *port ) {
   int port_int;
   if( strlen( str_ip ) > 5 )
@@ -137,8 +138,7 @@ int parse_args( const char *settings [], struct settings_struct *filter_settings
   return 0;
 }
 
-/*
-int parse_and_check_pkt_fields( struct settings_struct *filter_settings, char *eth_buf ) {
+int parse_and_check_pkt_fields( struct settings_struct *filter_settings, char *eth_buf, int eth_buf_len ) {
 
   u_int32_t *ip;
   u_int16_t *port;
@@ -151,10 +151,16 @@ int parse_and_check_pkt_fields( struct settings_struct *filter_settings, char *e
 
   if( filter_settings -> filter_mask & SRC_IP_FILTER_EN )
     if( filter_settings -> src_ip != ntohl(*ip++) )
+#ifdef DEBUG
+      printf("SRC_IP error\n");
+#endif
       return 1;
 
   if( filter_settings -> filter_mask & DST_IP_FILTER_EN )
     if( filter_settings -> dst_ip != ntohl(*ip++) )
+#ifdef DEBUG
+      printf("DST_IP error\n");
+#endif
       return 1;
 
   // Cast to UDP 16-bit fields
@@ -162,12 +168,17 @@ int parse_and_check_pkt_fields( struct settings_struct *filter_settings, char *e
 
   if( filter_settings -> filter_mask & SRC_PORT_FILTER_EN )
     if( filter_settings -> src_port != ntohs(*port++) )
+#ifdef DEBUG
+      printf("SRC_PORT error\n");
+#endif
       return 1;
 
   if( filter_settings -> filter_mask & DST_PORT_FILTER_EN )
     if( filter_settings -> dst_port != ntohs(*port++) )
+#ifdef DEBUG
+      printf("DST_PORT error\n");
+#endif
       return 1;
 
   return 0;
 }
-*/

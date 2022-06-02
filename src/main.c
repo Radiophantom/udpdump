@@ -7,18 +7,14 @@
 #include <mqueue.h>
 #include <fcntl.h>
 #include <time.h>
-#include <sys/socket.h>
-#include <arpa/inet.h>
 #include <sys/ioctl.h>
 #include <string.h>
 
-#include <net/if.h>
-#include <netinet/ip.h>
-#include <netinet/udp.h>
-#include <netinet/ether.h>
-#include <linux/if_packet.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
 #include <linux/if_ether.h>
-#include <net/ethernet.h>
+#include <net/if.h>
+#include <linux/if_packet.h>
 
 #include <main.h>
 #include <accum_stat.h>
@@ -26,12 +22,15 @@
 
 #define DEBUG
 
+#define handle_error(msg) \
+  do { perror(msg); exit(EXIT_FAILURE); } while (0)
+
 // Global variable to stop threads after Ctrl+C
 int stop = 0;
 
 // SIGINT handler action function
 void sig_handler( int signo, siginfo_t *info, void *ptr ) {
-  stop = 1;
+  stop = signo;
 }
 
 // SIGINT handler set function
@@ -146,60 +145,28 @@ int main ( int argc, char *argv[] ) {
   // Read RAW socket
   //******************************************************************************
 
+  char *eth_buf = (char*) malloc( 2048 );
+  if( eth_buf == NULL )
+    goto exit_and_close_mqueue;
+
   while( stop == 0 ) {
 
     int bytes_amount;
 
-    char *eth_buf = (char*) malloc( 65536 );
     char *eth_buf_ptr;
 
-    if( eth_buf == NULL )
-      goto exit_and_close_mqueue;
-
-    bytes_amount = recv( raw_socket, eth_buf, 65536, 0 );
-
-    struct ethhdr *eth_hdr;
-    struct iphdr  *ip_hdr;
-    struct udphdr *udp_hdr;
+    bytes_amount = recv( raw_socket, eth_buf, 2048, 0 );
 
     if( bytes_amount == -1 ) {
-      perror("recv");
+      if( errno != EINTR )
+        perror("recv");
     } else {
-      printf("Msg captured\n");
-      eth_buf_ptr = eth_buf;
-      for( int i = 0; i < bytes_amount; i++ )
-        printf("%X", eth_buf[i]);
-      printf("\n");
-      eth_hdr = (struct ethhdr*)eth_buf_ptr;
-      eth_buf_ptr += sizeof(struct ethhdr);
-      ip_hdr  = (struct iphdr*)eth_buf_ptr;
-      eth_buf_ptr += sizeof(struct iphdr);
-      udp_hdr  = (struct udphdr*)eth_buf_ptr;
-      //parse_and_check_pkt_fields( &filter_settings, eth_buf, bytes_amount );
-#ifdef DEBUG
-      printf("DST Mac:%X%X%X%X%X%X\n", eth_hdr -> h_dest[0],
-                                       eth_hdr -> h_dest[1],
-                                       eth_hdr -> h_dest[2],
-                                       eth_hdr -> h_dest[3],
-                                       eth_hdr -> h_dest[4],
-                                       eth_hdr -> h_dest[5] );
-      printf("SRC Mac:%X%X%X%X%X%X\n", eth_hdr -> h_source[0],
-                                       eth_hdr -> h_source[1],
-                                       eth_hdr -> h_source[2],
-                                       eth_hdr -> h_source[3],
-                                       eth_hdr -> h_source[4],
-                                       eth_hdr -> h_source[5] );
-      printf("IP Proto:%X\n",  ntohs(eth_hdr -> h_proto));
-      printf("IP Protocol:%d\n", ip_hdr -> protocol);
-      printf("IP SRC:%X\n", ntohl(ip_hdr -> saddr));
-      printf("IP DST:%X\n", ntohl(ip_hdr -> daddr));
-      printf("\n");
-#endif
-      ret = mq_send( mq_fd, (char*)&bytes_amount, 4, 0 );
-      if( ret == -1 ) {
-        perror("mq_send");
-        free(eth_buf);
-        goto exit_and_close_mqueue;
+      if(parse_and_check_pkt_fields(&filter_settings, eth_buf, bytes_amount) != -1) {
+        ret = mq_send( mq_fd, (char*)&bytes_amount, 4, 0 );
+        if( ret == -1 ) {
+          perror("mq_send");
+          goto exit_and_close_mqueue;
+        }
       }
     }
   }
@@ -207,6 +174,7 @@ int main ( int argc, char *argv[] ) {
   pthread_join( accum_thread, NULL );
 
   exit_and_close_mqueue:
+    free(eth_buf);
     if( mq_close( mq_fd ) )
       perror("mq_close");
     if( mq_unlink( msg_queue_name ) )
@@ -215,5 +183,7 @@ int main ( int argc, char *argv[] ) {
     if( close( raw_socket ) )
       perror("close");
 
+  fprintf(stderr, "Exiting via %s\n", strsignal(stop));
+  printf("Main thread closed\n");
   exit(EXIT_SUCCESS);
 }

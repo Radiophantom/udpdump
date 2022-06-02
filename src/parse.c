@@ -6,7 +6,12 @@
 #include <sys/stat.h>
 #include <parse.h>
 
-#define DEBUG
+#include <netinet/ip.h>
+#include <netinet/udp.h>
+#include <netinet/ether.h>
+#include <linux/if_packet.h>
+#include <net/ethernet.h>
+
 int parse_port ( char *str_ip, u_int16_t *port ) {
   int port_int;
   if( strlen( str_ip ) > 5 )
@@ -140,45 +145,63 @@ int parse_args( const char *settings [], struct settings_struct *filter_settings
 
 int parse_and_check_pkt_fields( struct settings_struct *filter_settings, char *eth_buf, int eth_buf_len ) {
 
-  u_int32_t *ip;
-  u_int16_t *port;
+  struct ethhdr *eth_hdr;
+  struct iphdr  *ip_hdr;
+  struct udphdr *udp_hdr;
 
-  // Skip some header fields till IP-fields
-  eth_buf = eth_buf + 12 + 2;
+  eth_hdr = (struct ethhdr*)eth_buf;
+  //eth_buf += sizeof(struct ethhdr);
+  ip_hdr  = (struct iphdr* )(eth_buf + sizeof(struct ethhdr));
+  //eth_buf += sizeof(struct iphdr);
+  udp_hdr = (struct udphdr*)(eth_buf + sizeof(struct ethhdr) + sizeof(struct iphdr));
 
-  // Cast to IP 32-bit fields
-  ip = (u_int32_t*)eth_buf;
+  eth_buf = eth_buf + sizeof(struct ethhdr) + sizeof(struct iphdr) + sizeof(struct udphdr);
 
-  if( filter_settings -> filter_mask & SRC_IP_FILTER_EN )
-    if( filter_settings -> src_ip != ntohl(*ip++) )
+  if(ntohs(eth_hdr -> h_proto) != ETHERTYPE_IP)
+    return -1;
+  if(ip_hdr -> version != 4)//IPVERSION)
+    return -1;
+  if(ip_hdr -> protocol != 17)//SOL_UDP)
+    return -1;
+
+  if(filter_settings -> filter_mask & SRC_IP_FILTER_EN)
+    if(filter_settings -> src_ip != ntohl(ip_hdr -> saddr))
+      return -1;
+
+  if(filter_settings -> filter_mask & DST_IP_FILTER_EN)
+    if(filter_settings -> dst_ip != ntohl(ip_hdr -> daddr))
+      return -1;
+
+  if(filter_settings -> filter_mask & SRC_PORT_FILTER_EN)
+    if(filter_settings -> src_port != ntohs(udp_hdr -> source))
+      return -1;
+
+  if(filter_settings -> filter_mask & DST_PORT_FILTER_EN)
+    if(filter_settings -> dst_port != ntohs(udp_hdr -> dest))
+      return -1;
+
 #ifdef DEBUG
-      printf("SRC_IP error\n");
+      printf("DST Mac:%X%X%X%X%X%X\n", eth_hdr -> h_dest[0],
+                                       eth_hdr -> h_dest[1],
+                                       eth_hdr -> h_dest[2],
+                                       eth_hdr -> h_dest[3],
+                                       eth_hdr -> h_dest[4],
+                                       eth_hdr -> h_dest[5] );
+      printf("SRC Mac:%X%X%X%X%X%X\n", eth_hdr -> h_source[0],
+                                       eth_hdr -> h_source[1],
+                                       eth_hdr -> h_source[2],
+                                       eth_hdr -> h_source[3],
+                                       eth_hdr -> h_source[4],
+                                       eth_hdr -> h_source[5] );
+      printf("IP Proto:%X\n",  ntohs(eth_hdr -> h_proto));
+      printf("IP Protocol:%d\n", ip_hdr -> protocol);
+      printf("IP SRC:%X\n", ntohl(ip_hdr -> saddr));
+      printf("IP DST:%X\n", ntohl(ip_hdr -> daddr));
+      printf("UDP data:\n");
+      for( int i = 0; i < ntohs(udp_hdr -> len)-8; i++ )
+        printf("%X", *eth_buf++);
+      printf("\n");
 #endif
-      return 1;
-
-  if( filter_settings -> filter_mask & DST_IP_FILTER_EN )
-    if( filter_settings -> dst_ip != ntohl(*ip++) )
-#ifdef DEBUG
-      printf("DST_IP error\n");
-#endif
-      return 1;
-
-  // Cast to UDP 16-bit fields
-  port = (u_int16_t*)ip;
-
-  if( filter_settings -> filter_mask & SRC_PORT_FILTER_EN )
-    if( filter_settings -> src_port != ntohs(*port++) )
-#ifdef DEBUG
-      printf("SRC_PORT error\n");
-#endif
-      return 1;
-
-  if( filter_settings -> filter_mask & DST_PORT_FILTER_EN )
-    if( filter_settings -> dst_port != ntohs(*port++) )
-#ifdef DEBUG
-      printf("DST_PORT error\n");
-#endif
-      return 1;
 
   return 0;
 }

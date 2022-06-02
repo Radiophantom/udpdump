@@ -17,7 +17,7 @@ void *accum_stat( void *msg_queue_name ) {
   sigset_t mask;
   sigemptyset( &mask );
   sigaddset( &mask, SIGINT );
-  pthread_sigmask(SIG_BLOCK, &mask, NULL);
+  //pthread_sigmask(SIG_BLOCK, &mask, NULL);
 
   mqd_t mq_fd;
 
@@ -37,14 +37,14 @@ void *accum_stat( void *msg_queue_name ) {
       printf("Message value: %0d\n", msg_value);
     } else if( errno != EAGAIN ) {
       perror("mq_timedreceive");
-      if( mq_close( mq_fd ) )
-        perror("mq_close");
-      pthread_exit( NULL );
+      goto exit_and_close;
     }
   }
   
-  if( mq_close( mq_fd ) )
-    perror("mq_close");
-  pthread_exit( NULL );
+  exit_and_close:
+    if( mq_close( mq_fd ) )
+      perror("mq_close");
+    printf("Accum thread closed\n");
+    pthread_exit( NULL );
 }
 

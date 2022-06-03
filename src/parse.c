@@ -19,50 +19,8 @@ int parse_port ( char *str_ip, u_int16_t *port ) {
   port_int = atoi( str_ip );
   if( port_int > 65535 )
     return -1;
+  port_int = ntohs(port_int);
   *port = (u_int16_t)port_int;
-  return 0;
-}
-
-int parse_ip ( char *str_ip, u_int32_t *ip ) {
-
-  char *next_str_ip = str_ip;
-  u_int32_t ip_byte;
-
-  // Parse first 3 IP fields
-  for( int i = 0; i < 3; i++ ) {
-    // Find next '.' divider
-    for( int j = 0; j < 4; j++ ) {
-      if( *next_str_ip++ == '.' ) {
-        if( j == 0 )
-          return -1;
-        break;
-      }
-      if( j == 3 )
-        return -1;
-    }
-    if( ( ip_byte = atoi( str_ip) ) > 255 )
-      return -1;
-    *ip = ( *ip << 8 ) | ip_byte;
-    str_ip = next_str_ip;
-  }
-
-  // Parse last 4th IP field
-  for( int j = 0; j < 4; j++ ) {
-    if ( *next_str_ip == '.' ) {
-      return -1;
-    }
-    if ( *next_str_ip++ == '\0' ) {
-      if( j == 0 )
-        return -1;
-      break;
-    }
-    if( j == 3 )
-      return -1;
-  }
-
-  if( ( ip_byte = atoi( str_ip) ) > 255 )
-    return -1;
-  *ip = ( *ip << 8 ) | ip_byte;
   return 0;
 }
 
@@ -88,19 +46,24 @@ int parse_args( const char *settings [], struct settings_struct *filter_settings
       return 1;
     }
 
+    struct in_addr ip_struct;
+
     switch( arg_ind ) {
       case( 0 ):
-        if( parse_ip( argv[i+1], &filter_settings -> dst_ip ) == -1 ) {
+        if(inet_aton(argv[i+1], &ip_struct) == -1){
           printf("Invalid \"%s\" argument value: %s\n", argv[i], argv[i+1]);
           exit(EXIT_FAILURE);
         }
+        filter_settings -> dst_ip = (uint32_t)ip_struct.s_addr;
+        printf("%X\n", filter_settings -> dst_ip);
         filter_settings -> filter_mask |= DST_IP_FILTER_EN;
         break;
       case( 1 ):
-        if( parse_ip( argv[i+1], &filter_settings -> src_ip ) == -1 ) {
+        if(inet_aton(argv[i+1], &ip_struct) == -1){
           printf("Invalid \"%s\" argument value: %s\n", argv[i], argv[i+1]);
           exit(EXIT_FAILURE);
         }
+        filter_settings -> src_ip = (uint32_t)ip_struct.s_addr;
         filter_settings -> filter_mask |= SRC_IP_FILTER_EN;
         break;
       case( 2 ):
@@ -165,19 +128,19 @@ int parse_and_check_pkt_fields( struct settings_struct *filter_settings, char *e
     return -1;
 
   if(filter_settings -> filter_mask & SRC_IP_FILTER_EN)
-    if(filter_settings -> src_ip != ntohl(ip_hdr -> saddr))
+    if(filter_settings -> src_ip != ip_hdr -> saddr)
       return -1;
 
   if(filter_settings -> filter_mask & DST_IP_FILTER_EN)
-    if(filter_settings -> dst_ip != ntohl(ip_hdr -> daddr))
+    if(filter_settings -> dst_ip != ip_hdr -> daddr)
       return -1;
 
   if(filter_settings -> filter_mask & SRC_PORT_FILTER_EN)
-    if(filter_settings -> src_port != ntohs(udp_hdr -> source))
+    if(filter_settings -> src_port != udp_hdr -> source)
       return -1;
 
   if(filter_settings -> filter_mask & DST_PORT_FILTER_EN)
-    if(filter_settings -> dst_port != ntohs(udp_hdr -> dest))
+    if(filter_settings -> dst_port != udp_hdr -> dest)
       return -1;
 
 #ifdef DEBUG

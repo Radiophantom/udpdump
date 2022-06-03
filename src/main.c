@@ -57,6 +57,7 @@ int main ( int argc, char *argv[] ) {
   //******************************************************************************
 
   struct settings_struct filter_settings;
+  memset(&filter_settings, 0, sizeof(struct settings_struct));
 
   if( parse_args( settings, &filter_settings, argc, argv ) )
     exit(EXIT_FAILURE);
@@ -74,8 +75,7 @@ int main ( int argc, char *argv[] ) {
   int raw_socket;
 
   if((raw_socket = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL))) == -1 ) {
-    perror("socket");
-    exit(EXIT_FAILURE);
+    handle_error("socket");
   }
 
 #ifdef DEBUG
@@ -89,8 +89,7 @@ int main ( int argc, char *argv[] ) {
   strncpy( if_dev_info.ifr_name, filter_settings.iface_name, IFNAMSIZ-1 );
 
   if(ioctl(raw_socket, SIOCGIFINDEX, &if_dev_info) == -1) {
-    perror("ioctl");
-    goto exit_and_close_socket;
+    handle_error("ioctl");
   }
 
   struct sockaddr_ll sock_dev_info;
@@ -98,14 +97,12 @@ int main ( int argc, char *argv[] ) {
   memset(&sock_dev_info, 0, sizeof( struct sockaddr_ll ));
 
   sock_dev_info.sll_family   = AF_PACKET;
-  //sock_dev_info.sll_pkttype  = PACKET_OTHERHOST;
   sock_dev_info.sll_ifindex  = if_dev_info.ifr_ifindex;
 
   ret = bind( raw_socket, (struct sockaddr*) &sock_dev_info, sizeof( struct sockaddr_ll ) );
 
   if( ret == -1 ) {
-    perror("bind");
-    goto exit_and_close_socket;
+    handle_error("bind");
   }
 
   //******************************************************************************
@@ -120,13 +117,12 @@ int main ( int argc, char *argv[] ) {
   attr.mq_msgsize = 4;
   attr.mq_curmsgs = 0;
 
-  char msg_queue_name [12] = "/test-msg-q\0";
+  char msg_queue_name [20] = "/udpdump-util-q";
 
   mq_fd = mq_open( msg_queue_name, O_WRONLY | O_CREAT, 0200, &attr );
 
   if( mq_fd == (mqd_t)-1 ) {
-    perror("mq_open");
-    goto exit_and_close_socket;
+    handle_error("mq_open");
   }
 
 #ifdef DEBUG
@@ -139,14 +135,17 @@ int main ( int argc, char *argv[] ) {
 
   pthread_t accum_thread;
 
-  pthread_create( &accum_thread, NULL, accum_stat, msg_queue_name );
+  if(pthread_create(&accum_thread, NULL, accum_stat, msg_queue_name)) {
+    handle_error("pthread_create");
+  }
 
   //******************************************************************************
   // Read RAW socket
   //******************************************************************************
 
-  char *eth_buf = (char*) malloc( 2048 );
-  if( eth_buf == NULL )
+  char *eth_buf;
+  
+  if((eth_buf = (char*) malloc(2048)) == NULL)
     goto exit_and_close_mqueue;
 
   while( stop == 0 ) {

@@ -59,7 +59,7 @@ int main ( int argc, char *argv[] ) {
   struct settings_struct filter_settings;
   memset(&filter_settings, 0, sizeof(struct settings_struct));
 
-  if( parse_args( settings, &filter_settings, argc, argv ) )
+  if( parse_args( &filter_settings, argc, argv ) )
     exit(EXIT_FAILURE);
 
   //******************************************************************************
@@ -75,12 +75,9 @@ int main ( int argc, char *argv[] ) {
   int raw_socket;
 
   if((raw_socket = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL))) == -1 ) {
-    handle_error("socket");
+    perror("socket");
+    exit(EXIT_FAILURE);
   }
-
-#ifdef DEBUG
-  printf("Success raw socket\n");
-#endif
 
   // Get required interface index for RAW socket purpose
   struct ifreq if_dev_info;
@@ -89,7 +86,8 @@ int main ( int argc, char *argv[] ) {
   strncpy( if_dev_info.ifr_name, filter_settings.iface_name, IFNAMSIZ-1 );
 
   if(ioctl(raw_socket, SIOCGIFINDEX, &if_dev_info) == -1) {
-    handle_error("ioctl");
+    perror("ioctl");
+    goto close_raw_socket;
   }
 
   struct sockaddr_ll sock_dev_info;
@@ -102,57 +100,50 @@ int main ( int argc, char *argv[] ) {
   ret = bind( raw_socket, (struct sockaddr*) &sock_dev_info, sizeof( struct sockaddr_ll ) );
 
   if( ret == -1 ) {
-    handle_error("bind");
+    perror("bind");
+    goto close_raw_socket;
+  }
+
+//******************************************************************************
+// Open pipe for inter-thread communication
+//******************************************************************************
+
+  int pipefd[2];
+
+  if(pipe2(pipefd, O_NONBLOCK) == -1) {
+    perror("pipe2");
+    goto close_raw_socket;
   }
 
   //******************************************************************************
-  // Open msg queue for inter-thread communication
-  //******************************************************************************
-
-  mqd_t mq_fd;
-  struct mq_attr attr;
-
-  attr.mq_flags   = 0;
-  attr.mq_maxmsg  = 10;
-  attr.mq_msgsize = 4;
-  attr.mq_curmsgs = 0;
-
-  char msg_queue_name [20] = "/udpdump-util-q";
-
-  mq_fd = mq_open( msg_queue_name, O_WRONLY | O_CREAT, 0200, &attr );
-
-  if( mq_fd == (mqd_t)-1 ) {
-    handle_error("mq_open");
-  }
-
-#ifdef DEBUG
-  printf("Main thread opened msg queue\n");
-#endif
-
-  //******************************************************************************
-  // Create 'stat' accum thread
-  //******************************************************************************
-
-  pthread_t accum_thread;
-
-  if(pthread_create(&accum_thread, NULL, accum_stat, msg_queue_name)) {
-    handle_error("pthread_create");
-  }
-
-  //******************************************************************************
-  // Read RAW socket
+  // Allocate receive buffer
   //******************************************************************************
 
   char *eth_buf;
   
   if((eth_buf = (char*) malloc(2048)) == NULL)
-    goto exit_and_close_mqueue;
+    goto close_pipe_fd;
+
+  //******************************************************************************
+  // Create and start statisctic accumulation thread
+  //******************************************************************************
+
+  pthread_t accum_thread;
+
+  if(pthread_create(&accum_thread, NULL, accum_stat, &pipefd[0])) {
+    printf("Pthred open failed\n");
+    goto free_mem;
+  }
+
+  printf("Statistic accumulation started!\n");
+
+  //******************************************************************************
+  // Read RAW socket
+  //******************************************************************************
 
   while( stop == 0 ) {
 
     int bytes_amount;
-
-    char *eth_buf_ptr;
 
     bytes_amount = recv( raw_socket, eth_buf, 2048, 0 );
 
@@ -161,28 +152,30 @@ int main ( int argc, char *argv[] ) {
         perror("recv");
     } else {
       if(parse_and_check_pkt_fields(&filter_settings, eth_buf, bytes_amount) != -1) {
-        ret = mq_send( mq_fd, (char*)&bytes_amount, 4, 0 );
-        if( ret == -1 ) {
-          perror("mq_send");
-          goto exit_and_close_mqueue;
+        if(write(pipefd[1], &bytes_amount, 4) == -1) {
+          perror("write");
+          goto wait_pthread;
         }
       }
     }
   }
 
-  pthread_join( accum_thread, NULL );
-
-  exit_and_close_mqueue:
+  wait_pthread:
+    pthread_join(accum_thread, NULL);
+  free_mem:
     free(eth_buf);
-    if( mq_close( mq_fd ) )
-      perror("mq_close");
-    if( mq_unlink( msg_queue_name ) )
-      perror("mq_unlink");
-  exit_and_close_socket:
-    if( close( raw_socket ) )
+  close_pipe_fd:
+    if(close(pipefd[0])) {
       perror("close");
+    }
+    // FIXME: Should be closed from Pthread
+    if(close(pipefd[1])) {
+      perror("close");
+    }
+  close_raw_socket:
+    if(close(raw_socket)) {
+      perror("close");
+    }
 
-  fprintf(stderr, "Exiting via %s\n", strsignal(stop));
-  printf("Main thread closed\n");
   exit(EXIT_SUCCESS);
 }

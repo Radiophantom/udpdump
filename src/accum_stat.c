@@ -10,41 +10,88 @@
 #include <accum_stat.h>
 #include <signal.h>
 
+#define SERVER_QUEUE_NAME "/udpdump-accum-stat-util-q"
+
 extern int stop;
 
 // Statistic accumulation thread
-void *accum_stat( void *msg_queue_name ) {
+void *accum_stat( void *pipefd ) {
+  //******************************************************************************
+  // Mask unwanted signals
+  //******************************************************************************
+
   sigset_t mask;
   sigemptyset( &mask );
   sigaddset( &mask, SIGINT );
-  //pthread_sigmask(SIG_BLOCK, &mask, NULL);
 
-  mqd_t mq_fd;
+  //if(stop) {
+  //  pthread_exit();
+  //} else {
+  //  pthread_sigmask(SIG_BLOCK, &mask, NULL);
+  //}
 
-  mq_fd = mq_open( msg_queue_name, O_RDONLY | O_NONBLOCK );
+  //******************************************************************************
+  // Open pipe to read statistic from main thread
+  //******************************************************************************
 
-  if( mq_fd == (mqd_t)-1 ) {
-    perror("mq_open");
-    pthread_exit( NULL );
-  }
+  int pfd = *(int*)pipefd;
 
   u_int32_t msg_value;
-  int       ret;
+  long  stat_var = 0;
+
+  //******************************************************************************
+  // Open msg queue for inter-thread communication
+  //******************************************************************************
+
+  mqd_t server_mq_fd, client_mq_fd;
+  struct mq_attr attr;
+
+  char client_msg_queue_name [100];
+
+  attr.mq_flags   = O_NONBLOCK;
+  attr.mq_maxmsg  = 10;
+  attr.mq_msgsize = 100;
+  attr.mq_curmsgs = 0;
+
+  if((server_mq_fd = mq_open( SERVER_QUEUE_NAME, O_RDONLY | O_CREAT | O_NONBLOCK, 0777, &attr )) == (mqd_t)-1) {
+    perror("mq_open");
+    exit(EXIT_FAILURE);
+  }
+
+  //******************************************************************************
+  // Main process loop
+  //******************************************************************************
 
   while( stop == 0 ) {
-    ret = mq_receive( mq_fd, (char*)&msg_value, 4, NULL );
-    if( ret != -1 ) {
-      printf("Message value: %0d\n", msg_value);
+    if(read(pfd, &msg_value, 4) != -1) {
+      stat_var += msg_value;
     } else if( errno != EAGAIN ) {
-      perror("mq_timedreceive");
-      goto exit_and_close;
+      perror("read");
+      exit(EXIT_FAILURE);
+    }
+    if(mq_receive(server_mq_fd, client_msg_queue_name, 100, NULL) != (mqd_t)-1) {
+      if((client_mq_fd = mq_open(client_msg_queue_name, O_WRONLY)) != -1) {
+        if(mq_send(client_mq_fd, (char*)&stat_var, sizeof(long), 0) == -1) {
+          perror("mq_send");
+          exit(EXIT_FAILURE);
+        }
+        stat_var = 0;
+      }
+    } else if(errno != EAGAIN) {
+      perror("mq_receive");
+      exit(EXIT_FAILURE);
     }
   }
   
-  exit_and_close:
-    if( mq_close( mq_fd ) )
-      perror("mq_close");
-    printf("Accum thread closed\n");
-    pthread_exit( NULL );
+  if(mq_close(server_mq_fd) == (mqd_t)-1) {
+    perror("mq_close");
+    exit(EXIT_FAILURE);
+  }
+  if(mq_unlink(SERVER_QUEUE_NAME) == -1) {
+    perror("mq_unlink");
+    exit(EXIT_FAILURE);
+  }
+
+  pthread_exit( NULL );
 }
 

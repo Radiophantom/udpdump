@@ -3,21 +3,23 @@ SRC_DIR=src
 BUILD_DIR=build
 INC_DIR=inc/
 
-TARGET=udpdump
-
-SRC=main.c parse.c accum_stat.c
-OBJ=$(addprefix $(BUILD_DIR)/, $(SRC:.c=.o))
+UDPDUMP_SRC=main.c parse.c accum_stat.c
+UDPDUMP_OBJ=$(addprefix $(BUILD_DIR)/, $(UDPDUMP_SRC:.c=.o))
 
 all:
 	make -C . clean
 	make -C . build
-	make -C . $(TARGET)
+	make -C . udpdump
+	make -C . get_stat
 
 build:
 	mkdir -p $(BUILD_DIR)
 
-$(TARGET): $(OBJ)
-	gcc $(OBJ) -o $(TARGET) -lrt -pthread
+udpdump: $(UDPDUMP_OBJ)
+	gcc $(UDPDUMP_OBJ) -o $@ -lrt -pthread
+
+get_stat: $(BUILD_DIR)/get_stat.o
+	gcc $< -o $@ $(CFLAGS) -lrt
 
 $(BUILD_DIR)/%.o : $(SRC_DIR)/%.c
 	gcc -c $< -o $@ $(CFLAGS)
@@ -25,7 +27,4 @@ $(BUILD_DIR)/%.o : $(SRC_DIR)/%.c
 clean:
 	rm -rf $(BUILD_DIR)/*
 
-run:
-	./$(TARGET) -dstip 192.168.1.1 -srcip 192.168.3.1 -dstport 55000 -srcport 56000 -if lo
-
-.PHONY: run, build, all
+.PHONY: all, build, clean

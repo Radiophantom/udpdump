@@ -1,6 +1,9 @@
 #include <stdio.h>
 #include <stdlib.h>
+
+#include <getopt.h>
 #include <string.h>
+
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -11,78 +14,91 @@
 #include <netinet/ether.h>
 #include <linux/if_packet.h>
 #include <net/ethernet.h>
+#include <errno.h>
 
-int parse_port ( char *str_ip, u_int16_t *port ) {
-  int port_int;
-  if( strlen( str_ip ) > 5 )
-    return -1;
-  port_int = atoi( str_ip );
-  if( port_int > 65535 )
-    return -1;
-  port_int = ntohs(port_int);
-  *port = (u_int16_t)port_int;
-  return 0;
-}
+int parse_args( struct settings_struct *filter_settings, int argc, char *argv[] ) {
+  int c;
+  int option_index = 0;
 
-int find_args( const char *settings [], char *argv ) {
-  for( int i = 0; i < 5; i++ )
-    if( strcmp( settings[i], argv ) == 0 )
-      return i;
-  return -1;
-}
+  while(1) {
+    static struct option long_options[] = {
+      {"dst-ip",   required_argument, 0, 0 },
+      {"src-ip",   required_argument, 0, 0 },
+      {"dst-port", required_argument, 0, 0 },
+      {"src-port", required_argument, 0, 0 },
+      {"if",       required_argument, 0, 0 },
+      {0,          0,                 0, 0 }
+    };
 
-int parse_args( const char *settings [], struct settings_struct *filter_settings, int argc, char *argv[] ) {
-  int arg_ind;
-
-  for( int i = 1; i < argc; i = i+2 ) {
-
-    if( ( arg_ind = find_args( settings, argv[i] ) ) == -1 ) {
-      printf("Unknown option \"%s\"\n", argv[i]);
-      return 1;
-    }
-
-    if( i > argc - 2 ) {
-      printf("\"%s\" option argument missed\n", argv[i]);
-      return 1;
-    }
+    c = getopt_long_only(argc, argv, "", long_options, &option_index);
 
     struct in_addr ip_struct;
+    long port;
+    char *port_char_ptr;
 
-    switch( arg_ind ) {
-      case( 0 ):
-        if(inet_aton(argv[i+1], &ip_struct) == -1){
-          printf("Invalid \"%s\" argument value: %s\n", argv[i], argv[i+1]);
+    if(c == -1) {
+      break;
+    } else if (c == 0) {
+      switch( option_index ) {
+        case( 0 ):
+          if(inet_aton(optarg, &ip_struct) == -1){
+            printf("Invalid \"%s\" argument value: %s\n", long_options[option_index].name, optarg);
+            exit(EXIT_FAILURE);
+          }
+          filter_settings -> dst_ip = (uint32_t)ip_struct.s_addr;
+          printf("%X\n", filter_settings -> dst_ip);
+          filter_settings -> filter_mask |= DST_IP_FILTER_EN;
+          break;
+        case( 1 ):
+          if(inet_aton(optarg, &ip_struct) == -1){
+            printf("Invalid \"%s\" argument value: %s\n", long_options[option_index].name, optarg);
+            exit(EXIT_FAILURE);
+          }
+          filter_settings -> src_ip = (uint32_t)ip_struct.s_addr;
+          printf("%X\n", filter_settings -> src_ip);
+          filter_settings -> filter_mask |= SRC_IP_FILTER_EN;
+          break;
+        case( 2 ):
+          errno = 0;
+          port = strtol(optarg, &port_char_ptr, 0);
+          if(errno != 0) {
+            perror("strtol");
+            exit(EXIT_FAILURE);
+          };
+          if(*port_char_ptr != '\0'){
+            printf("Invalid \"%s\" argument value: %s\n", long_options[option_index].name, optarg);
+            exit(EXIT_FAILURE);
+          };
+          if( port > 65535 ) {
+            printf("Invalid \"%s\" argument value: %s\n", long_options[option_index].name, optarg);
+            exit(EXIT_FAILURE);
+          };
+          filter_settings -> dst_port = (uint16_t)port;
+          filter_settings -> filter_mask |= DST_PORT_FILTER_EN;
+          break;
+        case( 3 ):
+          errno = 0;
+          port = strtol(optarg, &port_char_ptr, 0);
+          if(errno != 0)
+           perror("strtol");
+          if(*port_char_ptr != '\0'){
+            printf("Invalid \"%s\" argument value: %s\n", long_options[option_index].name, optarg);
+            exit(EXIT_FAILURE);
+          };
+          if( port > 65535 ) {
+            printf("Invalid \"%s\" argument value: %s\n", long_options[option_index].name, optarg);
+            exit(EXIT_FAILURE);
+          };
+          filter_settings -> filter_mask |= SRC_PORT_FILTER_EN;
+          break;
+        case( 4 ):
+          strcpy(filter_settings -> iface_name, optarg);
+          break;
+        default:
           exit(EXIT_FAILURE);
-        }
-        filter_settings -> dst_ip = (uint32_t)ip_struct.s_addr;
-        printf("%X\n", filter_settings -> dst_ip);
-        filter_settings -> filter_mask |= DST_IP_FILTER_EN;
-        break;
-      case( 1 ):
-        if(inet_aton(argv[i+1], &ip_struct) == -1){
-          printf("Invalid \"%s\" argument value: %s\n", argv[i], argv[i+1]);
-          exit(EXIT_FAILURE);
-        }
-        filter_settings -> src_ip = (uint32_t)ip_struct.s_addr;
-        filter_settings -> filter_mask |= SRC_IP_FILTER_EN;
-        break;
-      case( 2 ):
-        if( parse_port( argv[i+1], &filter_settings -> dst_port ) == -1 ) {
-          printf("Invalid \"%s\" argument value: %s\n", argv[i], argv[i+1]);
-          exit(EXIT_FAILURE);
-        }
-        filter_settings -> filter_mask |= DST_PORT_FILTER_EN;
-        break;
-      case( 3 ):
-        if( parse_port( argv[i+1], &filter_settings -> src_port ) == -1 ) {
-          printf("Invalid \"%s\" argument value: %s\n", argv[i], argv[i+1]);
-          exit(EXIT_FAILURE);
-        }
-        filter_settings -> filter_mask |= SRC_PORT_FILTER_EN;
-        break;
-      case( 4 ):
-        strcpy( filter_settings -> iface_name, argv[i+1] );
-        break;
+      }
+    } else {
+      exit(EXIT_FAILURE);
     }
   }
 

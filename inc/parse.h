@@ -12,7 +12,7 @@
 
 int parse_port ( char *str_ip, u_int16_t *port );
 int parse_ip ( char *str_ip, u_int32_t *ip );
-int parse_args( const char *settings [], struct settings_struct *filter_settings, int argc, char *argv[] );
+int parse_args( struct settings_struct *filter_settings, int argc, char *argv[] );
 int parse_and_check_pkt_fields( struct settings_struct *filter_settings, char *eth_buf, int eth_buf_len );
 
 #endif /* <parse.h> included. */

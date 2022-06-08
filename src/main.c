@@ -20,11 +20,6 @@
 #include <accum_stat.h>
 #include <parse.h>
 
-#define DEBUG
-
-#define handle_error(msg) \
-  do { perror(msg); exit(EXIT_FAILURE); } while (0)
-
 // Global variable to stop threads after Ctrl+C
 int stop = 0;
 
@@ -59,8 +54,9 @@ int main ( int argc, char *argv[] ) {
   struct settings_struct filter_settings;
   memset(&filter_settings, 0, sizeof(struct settings_struct));
 
-  if( parse_args( &filter_settings, argc, argv ) )
+  if(parse_args(&filter_settings, argc, argv)) {
     exit(EXIT_FAILURE);
+  }
 
   //******************************************************************************
   // Define SIGINT signal behavior
@@ -151,7 +147,7 @@ int main ( int argc, char *argv[] ) {
       if( errno != EINTR )
         perror("recv");
     } else {
-      if(parse_and_check_pkt_fields(&filter_settings, eth_buf, bytes_amount) != -1) {
+      if(parse_packet(&filter_settings, eth_buf, bytes_amount) != -1) {
         if(write(pipefd[1], &bytes_amount, 4) == -1) {
           perror("write");
           goto wait_pthread;

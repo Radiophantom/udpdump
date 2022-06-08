@@ -9,8 +9,7 @@
 #include <pthread.h>
 #include <accum_stat.h>
 #include <signal.h>
-
-#define SERVER_QUEUE_NAME "/udpdump-accum-stat-util-q"
+#include <common.h>
 
 extern int stop;
 
@@ -48,12 +47,12 @@ void *accum_stat( void *pipefd ) {
 
   char client_msg_queue_name [100];
 
-  attr.mq_flags   = O_NONBLOCK;
+  attr.mq_flags   = 0;
   attr.mq_maxmsg  = 10;
   attr.mq_msgsize = 100;
   attr.mq_curmsgs = 0;
 
-  if((server_mq_fd = mq_open( SERVER_QUEUE_NAME, O_RDONLY | O_CREAT | O_NONBLOCK, 0777, &attr )) == (mqd_t)-1) {
+  if((server_mq_fd = mq_open( ACCUM_QUEUE_NAME, O_RDONLY | O_CREAT | O_NONBLOCK, 0777, &attr )) == (mqd_t)-1) {
     perror("mq_open");
     exit(EXIT_FAILURE);
   }
@@ -87,7 +86,7 @@ void *accum_stat( void *pipefd ) {
     perror("mq_close");
     exit(EXIT_FAILURE);
   }
-  if(mq_unlink(SERVER_QUEUE_NAME) == -1) {
+  if(mq_unlink(ACCUM_QUEUE_NAME) == -1) {
     perror("mq_unlink");
     exit(EXIT_FAILURE);
   }

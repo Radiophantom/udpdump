@@ -8,6 +8,8 @@
 
 int main( void ) {
 
+  int error_occured = 0;
+
   //******************************************************************************
   // Open POSIX message queues
   //******************************************************************************
@@ -37,6 +39,7 @@ int main( void ) {
 
   if((client_mq_fd = mq_open(DISPLAY_QUEUE_NAME, O_RDONLY | O_CREAT, 0666, &attr)) == (mqd_t)-1) {
     perror("mq_open");
+    error_occured = 1;
     goto close_server_mq;
   }
 
@@ -46,6 +49,7 @@ int main( void ) {
 
   if(mq_send(server_mq_fd, DISPLAY_QUEUE_NAME, strlen(DISPLAY_QUEUE_NAME)+1, 0) == -1) {
     perror("mq_send");
+    error_occured = 1;
     goto close_client_mq;
   }
 
@@ -59,6 +63,7 @@ int main( void ) {
 
   if(mq_receive(client_mq_fd, (char*)&stat_bytes_amount, sizeof(long), NULL) == -1) {
     perror("mq_receive");
+    error_occured = 1;
     goto close_client_mq;
   }
 
@@ -79,6 +84,9 @@ close_server_mq:
   if(mq_close(server_mq_fd) == (mqd_t)-1) {
     perror("mq_close");
   }
+
+  if(error_occured)
+    return -1;
 
   return 0;
 }

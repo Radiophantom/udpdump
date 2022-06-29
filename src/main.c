@@ -44,8 +44,7 @@ void set_sig_handler( void ) {
 // Main function
 int main ( int argc, char *argv[] ) {
 
-  // Some functions temp result store variable
-  int ret;
+  int error_occured = 0;
 
   //******************************************************************************
   // Parse and check utility parameters
@@ -55,7 +54,7 @@ int main ( int argc, char *argv[] ) {
   memset(&filter_settings, 0, sizeof(struct settings_struct));
 
   if(parse_args(&filter_settings, argc, argv)) {
-    exit(EXIT_FAILURE);
+    return -1;
   }
 
   //******************************************************************************
@@ -72,7 +71,7 @@ int main ( int argc, char *argv[] ) {
 
   if((raw_socket = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL))) == -1 ) {
     perror("socket");
-    exit(EXIT_FAILURE);
+    return -1;
   }
 
   // Get required interface index for RAW socket purpose
@@ -83,6 +82,7 @@ int main ( int argc, char *argv[] ) {
 
   if(ioctl(raw_socket, SIOCGIFINDEX, &if_dev_info) == -1) {
     perror("ioctl");
+    error_occured = 1;
     goto close_raw_socket;
   }
 
@@ -93,10 +93,9 @@ int main ( int argc, char *argv[] ) {
   sock_dev_info.sll_family   = AF_PACKET;
   sock_dev_info.sll_ifindex  = if_dev_info.ifr_ifindex;
 
-  ret = bind( raw_socket, (struct sockaddr*) &sock_dev_info, sizeof( struct sockaddr_ll ) );
-
-  if( ret == -1 ) {
+  if((bind(raw_socket, (struct sockaddr*) &sock_dev_info, sizeof(struct sockaddr_ll))) == -1) {
     perror("bind");
+    error_occured = 1;
     goto close_raw_socket;
   }
 
@@ -108,6 +107,7 @@ int main ( int argc, char *argv[] ) {
 
   if(pipe2(pipefd, O_NONBLOCK) == -1) {
     perror("pipe2");
+    error_occured = 1;
     goto close_raw_socket;
   }
 
@@ -117,8 +117,10 @@ int main ( int argc, char *argv[] ) {
 
   char *eth_buf;
   
-  if((eth_buf = (char*) malloc(2048)) == NULL)
+  if((eth_buf = (char*) malloc(2048)) == NULL) {
+    error_occured = 1;
     goto close_pipe_fd;
+  }
 
   //******************************************************************************
   // Create and start statisctic accumulation thread
@@ -128,6 +130,7 @@ int main ( int argc, char *argv[] ) {
 
   if(pthread_create(&accum_thread, NULL, accum_stat, &pipefd[0])) {
     printf("Pthred open failed\n");
+    error_occured = 1;
     goto free_mem;
   }
 
@@ -150,6 +153,7 @@ int main ( int argc, char *argv[] ) {
       if(parse_packet(&filter_settings, eth_buf, bytes_amount) != -1) {
         if(write(pipefd[1], &bytes_amount, 4) == -1) {
           perror("write");
+          error_occured = 1;
           goto wait_pthread;
         }
       }
@@ -161,10 +165,6 @@ int main ( int argc, char *argv[] ) {
   free_mem:
     free(eth_buf);
   close_pipe_fd:
-    if(close(pipefd[0])) {
-      perror("close");
-    }
-    // FIXME: Should be closed from Pthread
     if(close(pipefd[1])) {
       perror("close");
     }
@@ -173,5 +173,8 @@ int main ( int argc, char *argv[] ) {
       perror("close");
     }
 
-  exit(EXIT_SUCCESS);
+  if(error_occured)
+    return -1;
+
+  return 0;
 }

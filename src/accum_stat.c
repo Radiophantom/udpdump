@@ -15,19 +15,8 @@ extern int stop;
 
 // Statistic accumulation thread
 void *accum_stat( void *pipefd ) {
-  //******************************************************************************
-  // Mask unwanted signals
-  //******************************************************************************
 
-  sigset_t mask;
-  sigemptyset( &mask );
-  sigaddset( &mask, SIGINT );
-
-  //if(stop) {
-  //  pthread_exit();
-  //} else {
-  //  pthread_sigmask(SIG_BLOCK, &mask, NULL);
-  //}
+  int error_occured = 0;
 
   //******************************************************************************
   // Open pipe to read statistic from main thread
@@ -36,7 +25,7 @@ void *accum_stat( void *pipefd ) {
   int pfd = *(int*)pipefd;
 
   u_int32_t msg_value;
-  long  stat_var = 0;
+  long      stat_var = 0;
 
   //******************************************************************************
   // Open msg queue for inter-thread communication
@@ -54,43 +43,60 @@ void *accum_stat( void *pipefd ) {
 
   if((server_mq_fd = mq_open( ACCUM_QUEUE_NAME, O_RDONLY | O_CREAT | O_NONBLOCK, 0777, &attr )) == (mqd_t)-1) {
     perror("mq_open");
-    exit(EXIT_FAILURE);
+    error_occured = 1;
+    goto close_pipe_fd;
   }
 
   //******************************************************************************
   // Main process loop
   //******************************************************************************
 
-  while( stop == 0 ) {
+  while(stop == 0) {
     if(read(pfd, &msg_value, 4) != -1) {
       stat_var += msg_value;
     } else if( errno != EAGAIN ) {
       perror("read");
-      exit(EXIT_FAILURE);
+      error_occured = 1;
+      goto close_server_mq;
     }
     if(mq_receive(server_mq_fd, client_msg_queue_name, 100, NULL) != (mqd_t)-1) {
       if((client_mq_fd = mq_open(client_msg_queue_name, O_WRONLY)) != -1) {
         if(mq_send(client_mq_fd, (char*)&stat_var, sizeof(long), 0) == -1) {
           perror("mq_send");
-          exit(EXIT_FAILURE);
+          error_occured = 1;
         }
         stat_var = 0;
+        if(mq_close(client_mq_fd) == (mqd_t)-1) {
+          perror("mq_close");
+          error_occured = 1;
+          goto close_server_mq;
+        }
+        if(error_occured) {
+          goto close_server_mq;
+        }
       }
     } else if(errno != EAGAIN) {
       perror("mq_receive");
-      exit(EXIT_FAILURE);
+      error_occured = 1;
+      goto close_server_mq;
     }
   }
   
+close_server_mq:
   if(mq_close(server_mq_fd) == (mqd_t)-1) {
     perror("mq_close");
-    exit(EXIT_FAILURE);
   }
   if(mq_unlink(ACCUM_QUEUE_NAME) == -1) {
     perror("mq_unlink");
-    exit(EXIT_FAILURE);
+  }
+close_pipe_fd:
+  if(close(pfd)) {
+    perror("close");
   }
 
-  pthread_exit( NULL );
+  if(error_occured)
+    return -1;
+
+  return 0;
 }
 

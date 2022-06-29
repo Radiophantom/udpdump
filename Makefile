@@ -25,6 +25,8 @@ $(BUILD_DIR)/%.o : $(SRC_DIR)/%.c
 	gcc -c $< -o $@ $(CFLAGS)
 
 clean:
-	rm -rf $(BUILD_DIR)/*
+	rm -rf $(BUILD_DIR)
+	rm -rf udpdump
+	rm -rf get_stat
 
 .PHONY: all, build, clean

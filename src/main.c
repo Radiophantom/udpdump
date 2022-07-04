@@ -1,3 +1,5 @@
+#define _GNU_SOURCE
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -53,8 +55,6 @@ int main ( int argc, char *argv[] ) {
 
   struct settings_struct filter_settings;
   memset(&filter_settings, 0, sizeof(struct settings_struct));
-
-  int ret;
 
   switch(parse_args(&filter_settings, argc, argv)) {
     case(1):

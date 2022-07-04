@@ -29,7 +29,7 @@ void sig_handler( int signo, siginfo_t *info, void *ptr ) {
 }
 
 // SIGINT handler set function
-void set_sig_handler( void ) {
+int set_sig_handler( void ) {
   struct sigaction action;
 
   action.sa_flags     = SA_SIGINFO;
@@ -37,8 +37,9 @@ void set_sig_handler( void ) {
 
   if( sigaction(SIGINT, &action, NULL) == -1 ){
     perror("sigaction");
-    exit(EXIT_FAILURE);
+    return -1;
   }
+  return 0;
 }
 
 // Main function
@@ -53,15 +54,24 @@ int main ( int argc, char *argv[] ) {
   struct settings_struct filter_settings;
   memset(&filter_settings, 0, sizeof(struct settings_struct));
 
-  if(parse_args(&filter_settings, argc, argv)) {
-    return -1;
+  int ret;
+
+  switch(parse_args(&filter_settings, argc, argv)) {
+    case(1):
+      return 0;
+    case(0):
+      break;
+    default:
+      return -1;
   }
 
   //******************************************************************************
   // Define SIGINT signal behavior
   //******************************************************************************
 
-  set_sig_handler();
+  if(set_sig_handler() == -1) {
+    return -1;
+  }
 
   //******************************************************************************
   // Open RAW socket and bind it to interface
@@ -69,7 +79,7 @@ int main ( int argc, char *argv[] ) {
 
   int raw_socket;
 
-  if((raw_socket = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL))) == -1 ) {
+  if((raw_socket = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_IP))) == -1 ) {
     perror("socket");
     return -1;
   }
@@ -117,7 +127,7 @@ int main ( int argc, char *argv[] ) {
 
   char *eth_buf;
   
-  if((eth_buf = (char*) malloc(2048)) == NULL) {
+  if((eth_buf = (char*) malloc(ETH_BUF_SIZE)) == NULL) {
     error_occured = 1;
     goto close_pipe_fd;
   }

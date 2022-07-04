@@ -13,6 +13,19 @@
 #include <net/ethernet.h>
 #include <errno.h>
 
+void print_help_msg() {
+  fprintf(stdout, "--help [-h]  - Show help info message.\n");
+  fprintf(stdout, "--dst-ip     - Destination ip filter.\n");
+  fprintf(stdout, "--src-ip     - Source ip filter.\n");
+  fprintf(stdout, "--dst-port   - Destination UDP port filter.\n");
+  fprintf(stdout, "--src-port   - Source UDP port filter.\n");
+  fprintf(stdout, "--if         - Interface to sniffing traffic.\n");
+  fprintf(stdout, "\n");
+  fprintf(stdout, "Example:\n");
+  fprintf(stdout, "udpdump --if eth --dst-ip 192.168.1.1 --src-ip 192.168.1.2 --dst-port 50000 --src-port 50000\n");
+  fprintf(stdout, "\n");
+}
+
 int get_ip_port(char *port_str, u_int16_t *ip_port) {
   long port;
   char *port_str_ptr;
@@ -46,62 +59,76 @@ int parse_args( struct settings_struct *filter_settings, int argc, char *argv[] 
   int c;
   int option_index = 0;
 
+  if(argc == 1) {
+    print_help_msg();
+    return 1;
+  }
+
   while(1) {
     static struct option long_options[] = {
-      {"dst-ip",   required_argument, 0, 0 },
-      {"src-ip",   required_argument, 0, 0 },
-      {"dst-port", required_argument, 0, 0 },
-      {"src-port", required_argument, 0, 0 },
-      {"if",       required_argument, 0, 0 },
-      {0,          0,                 0, 0 }
+      {"dst-ip",   required_argument, 0,  0 },
+      {"src-ip",   required_argument, 0,  0 },
+      {"dst-port", required_argument, 0,  0 },
+      {"src-port", required_argument, 0,  0 },
+      {"if",       required_argument, 0,  0 },
+      {"help",     no_argument,       0, 'h'},
+      {0,          0,                 0,  0 }
     };
 
-    c = getopt_long_only(argc, argv, "", long_options, &option_index);
+    c = getopt_long(argc, argv, "h", long_options, &option_index);
 
     if(c == -1) {
       break;
-    } else {
-      switch( option_index ) {
-        case( 0 ):
-          if(get_ip_addr(optarg, &filter_settings -> dst_ip)) {
-            fprintf(stderr, "Invalid '%s' argument value: %s\n", long_options[option_index].name, optarg);
+    }
+
+    switch(c) {
+      case('?'):
+        return -1;
+      case('h'):
+        print_help_msg();
+        return 1;
+      default:
+        switch(option_index) {
+          case(0):
+            if(get_ip_addr(optarg, &filter_settings -> dst_ip)) {
+              fprintf(stderr, "Invalid '%s' argument value: %s\n", long_options[option_index].name, optarg);
+              return -1;
+            }
+            filter_settings -> filter_mask |= DST_IP_FILTER_EN;
+            break;
+          case(1):
+            if(get_ip_addr(optarg, &filter_settings -> src_ip)) {
+              fprintf(stderr, "Invalid '%s' argument value: %s\n", long_options[option_index].name, optarg);
+              return -1;
+            }
+            filter_settings -> filter_mask |= SRC_IP_FILTER_EN;
+            break;
+          case(2):
+            if(get_ip_port(optarg, &filter_settings -> dst_port)) {
+              fprintf(stderr, "Invalid '%s' argument value: %s\n", long_options[option_index].name, optarg);
+              return -1;
+            }
+            filter_settings -> filter_mask |= DST_PORT_FILTER_EN;
+            break;
+          case(3):
+            if(get_ip_port(optarg, &filter_settings -> src_port)) {
+              fprintf(stderr, "Invalid '%s' argument value: %s\n", long_options[option_index].name, optarg);
+              return -1;
+            }
+            filter_settings -> filter_mask |= SRC_PORT_FILTER_EN;
+            break;
+          case(4):
+            if(strlen(optarg) > 99) {
+              fprintf(stderr, "Interface name is too long\n");
+              return -1;
+            }
+            strcpy(filter_settings -> iface_name, optarg);
+            filter_settings -> iface_valid = 1;
+            break;
+          default:
+            fprintf(stderr, "'%s' - unknown argument was passed\n", optarg);
             return -1;
-          }
-          filter_settings -> filter_mask |= DST_IP_FILTER_EN;
-          break;
-        case( 1 ):
-          if(get_ip_addr(optarg, &filter_settings -> src_ip)) {
-            fprintf(stderr, "Invalid '%s' argument value: %s\n", long_options[option_index].name, optarg);
-            return -1;
-          }
-          filter_settings -> filter_mask |= SRC_IP_FILTER_EN;
-          break;
-        case( 2 ):
-          if(get_ip_port(optarg, &filter_settings -> dst_port)) {
-            fprintf(stderr, "Invalid '%s' argument value: %s\n", long_options[option_index].name, optarg);
-            return -1;
-          }
-          filter_settings -> filter_mask |= DST_PORT_FILTER_EN;
-          break;
-        case( 3 ):
-          if(get_ip_port(optarg, &filter_settings -> src_port)) {
-            fprintf(stderr, "Invalid '%s' argument value: %s\n", long_options[option_index].name, optarg);
-            return -1;
-          }
-          filter_settings -> filter_mask |= SRC_PORT_FILTER_EN;
-          break;
-        case( 4 ):
-          if(strlen(optarg) > 99) {
-            fprintf(stderr, "Interface name is too long\n");
-            return -1;
-          }
-          strcpy(filter_settings -> iface_name, optarg);
-          filter_settings -> iface_valid = 1;
-          break;
-        default:
-          fprintf(stderr, "'%s' - unknown argument was passed\n", optarg);
-          return -1;
-      }
+        }
     }
   }
 
@@ -109,10 +136,10 @@ int parse_args( struct settings_struct *filter_settings, int argc, char *argv[] 
     while(optind < argc) {
       fprintf(stderr, "'%s' ", argv[optind++]);
     }
-    fprintf(stderr, "- extra arguments was passed\n");
+    fprintf(stderr, "non-option argument was passed\n");
     return -1;
   }
-
+      
   if(filter_settings -> iface_valid == 0) {
     fprintf(stderr, "Interface name must be set\n");
     return -1;

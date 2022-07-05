@@ -15,11 +15,11 @@
 
 void print_help_msg() {
   fprintf(stdout, "--help [-h]  - Show help info message.\n");
-  fprintf(stdout, "--dst-ip     - Destination ip filter.\n");
-  fprintf(stdout, "--src-ip     - Source ip filter.\n");
-  fprintf(stdout, "--dst-port   - Destination UDP port filter.\n");
-  fprintf(stdout, "--src-port   - Source UDP port filter.\n");
   fprintf(stdout, "--if         - Interface to sniffing traffic.\n");
+  fprintf(stdout, "--dst-ip     - Destination ip filter (Optional).\n");
+  fprintf(stdout, "--src-ip     - Source ip filter (Optional).\n");
+  fprintf(stdout, "--dst-port   - Destination UDP port filter (Optional).\n");
+  fprintf(stdout, "--src-port   - Source UDP port filter (Optional).\n");
   fprintf(stdout, "\n");
   fprintf(stdout, "Example:\n");
   fprintf(stdout, "udpdump --if eth --dst-ip 192.168.1.1 --src-ip 192.168.1.2 --dst-port 50000 --src-port 50000\n");

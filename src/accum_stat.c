@@ -94,9 +94,6 @@ close_pipe_fd:
     perror("close");
   }
 
-  if(error_occured)
-    return -1;
-
-  return 0;
+  pthread_exit(NULL);
 }
 

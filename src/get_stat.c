@@ -34,7 +34,7 @@ int main( void ) {
 
   attr.mq_flags   = 0;
   attr.mq_maxmsg  = 10;
-  attr.mq_msgsize = sizeof(long);
+  attr.mq_msgsize = sizeof(struct stat_struct);
   attr.mq_curmsgs = 0;
 
   if((client_mq_fd = mq_open(DISPLAY_QUEUE_NAME, O_RDONLY | O_CREAT, 0666, &attr)) == (mqd_t)-1) {
@@ -57,17 +57,18 @@ int main( void ) {
   // Read requested statistic and print the result
   //******************************************************************************
 
-  long stat_bytes_amount;
+  struct stat_struct stat_var;
 
   printf("Waiting for server response...\n");
 
-  if(mq_receive(client_mq_fd, (char*)&stat_bytes_amount, sizeof(long), NULL) == -1) {
+  if(mq_receive(client_mq_fd, (char*)&stat_var, sizeof(struct stat_struct), NULL) == -1) {
     perror("mq_receive");
     error_occured = 1;
     goto close_client_mq;
   }
 
-  printf("Accumulated bytes amount: %ld\n", stat_bytes_amount);
+  printf("Accumulated packets amount: %d\n", stat_var.pkts_amount);
+  printf("Accumulated bytes amount: %ld\n", stat_var.bytes_amount);
 
   //******************************************************************************
   // Close POSIX message 'queue' and others

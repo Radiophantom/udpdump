@@ -4,6 +4,11 @@
 #define ACCUM_QUEUE_NAME   "/udpdump-accum-stat-util-q"
 #define DISPLAY_QUEUE_NAME "/udpdump-get-stat-util-q"
 
+struct stat_struct {
+  int  pkts_amount;
+  long bytes_amount;
+};
+
 struct settings_struct {
   u_int32_t filter_mask;
   u_int32_t dst_ip;

@@ -25,7 +25,11 @@ void *accum_stat( void *pipefd ) {
   int pfd = *(int*)pipefd;
 
   u_int32_t msg_value;
-  long      stat_var = 0;
+
+  struct stat_struct stat_var;
+
+  // Init statistic variables
+  memset(&stat_var, 0, sizeof(struct stat_struct));
 
   //******************************************************************************
   // Open msg queue for inter-thread communication
@@ -53,7 +57,8 @@ void *accum_stat( void *pipefd ) {
 
   while(stop == 0) {
     if(read(pfd, &msg_value, 4) != -1) {
-      stat_var += msg_value;
+      stat_var.pkts_amount  += 1;
+      stat_var.bytes_amount += msg_value;
     } else if( errno != EAGAIN ) {
       perror("read");
       error_occured = 1;
@@ -61,11 +66,12 @@ void *accum_stat( void *pipefd ) {
     }
     if(mq_receive(server_mq_fd, client_msg_queue_name, 100, NULL) != (mqd_t)-1) {
       if((client_mq_fd = mq_open(client_msg_queue_name, O_WRONLY)) != -1) {
-        if(mq_send(client_mq_fd, (char*)&stat_var, sizeof(long), 0) == -1) {
+        if(mq_send(client_mq_fd, (char*)&stat_var, sizeof(struct stat_struct), 0) == -1) {
           perror("mq_send");
           error_occured = 1;
         }
-        stat_var = 0;
+        // Reset statisctic variables
+        memset(&stat_var, 0, sizeof(struct stat_struct));
         if(mq_close(client_mq_fd) == (mqd_t)-1) {
           perror("mq_close");
           error_occured = 1;
